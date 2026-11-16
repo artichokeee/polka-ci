@@ -1,0 +1,755 @@
+{
+  "info": {
+    "name": "Проверки Полки",
+    "description": "Проверки API учебного магазина \"Полка\" курса \"Рабочий день тестировщика: Docker и CI/CD\". Идут сверху вниз: магазин, каталог, новый одноразовый аккаунт, корзина с купоном, заказ и оплата тестовыми картами, удаление аккаунта. baseUrl – адрес магазина (по умолчанию http://localhost:3300). Их запускают задача Jenkins shelf-checks и workflow GitHub Actions shelf-checks.yml.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Каждый ответ Полки несет trace id: его называют в отчете о дефекте.",
+          "pm.test(\"Ответ содержит заголовок x-trace-id\", () => pm.response.to.have.header(\"x-trace-id\"));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "username",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "okCard",
+      "value": ""
+    },
+    {
+      "key": "declinedCard",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "cartTotal",
+      "value": ""
+    },
+    {
+      "key": "expectedTotal",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Магазин и каталог",
+      "item": [
+        {
+          "name": "Здоровье магазина",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const h = pm.response.json();",
+                  "pm.test(\"Магазин отвечает ok\", () => pm.expect(h.status).to.eql(\"ok\"));",
+                  "pm.test(\"Версия магазина в виде 3.N.0\", () => pm.expect(h.version).to.match(/^3\\.\\d+\\.0$/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Тестовые карты",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const cards = pm.response.json().cards;",
+                  "const ok = cards.find((c) => c.outcome === \"succeeded\");",
+                  "const declined = cards.find((c) => c.outcome === \"card_declined\");",
+                  "pm.test(\"Есть карта, которая проходит, и карта, которую отклоняют\", () => {",
+                  "  pm.expect(ok, \"карта с outcome succeeded\").to.be.an(\"object\");",
+                  "  pm.expect(declined, \"карта с outcome card_declined\").to.be.an(\"object\");",
+                  "});",
+                  "pm.collectionVariables.set(\"okCard\", ok.number);",
+                  "pm.collectionVariables.set(\"declinedCard\", declined.number);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/test-cards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "test-cards"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Категории",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const cats = pm.response.json();",
+                  "pm.test(\"Пять категорий\", () => pm.expect(cats.map((c) => c.slug)).to.have.members([\"kettles\", \"bikes\", \"books\", \"lamps\", \"backpacks\"]));",
+                  "pm.test(\"Всего 37 товаров\", () => pm.expect(cats.reduce((n, c) => n + c.count, 0)).to.eql(37));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "categories"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Чайники, сначала дешевые",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json();",
+                  "pm.test(\"Девять чайников\", () => pm.expect(page.total).to.eql(9));",
+                  "pm.test(\"Только чайники, цены в рублях\", () => page.items.forEach((p) => {",
+                  "  pm.expect(p.category).to.eql(\"kettles\");",
+                  "  pm.expect(p.currency).to.eql(\"RUB\");",
+                  "}));",
+                  "pm.test(\"По возрастанию цены\", () => {",
+                  "  const prices = page.items.map((p) => p.price);",
+                  "  pm.expect(prices).to.eql([...prices].sort((a, b) => a - b));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products?category=kettles&sort=price_asc&page_size=48",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "kettles"
+                },
+                {
+                  "key": "sort",
+                  "value": "price_asc"
+                },
+                {
+                  "key": "page_size",
+                  "value": "48"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Один товар",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test(\"Это чайник Hearthline Classic\", () => {",
+                  "  pm.expect(p.sku).to.eql(\"KT-1001\");",
+                  "  pm.expect(p.name).to.eql(\"Чайник Hearthline Classic 1,7 л\");",
+                  "});",
+                  "pm.test(\"Цена 4900 рублей\", () => {",
+                  "  pm.expect(p.price).to.eql(4900);",
+                  "  pm.expect(p.currency).to.eql(\"RUB\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Товара нет",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Код ошибки product_not_found\", () => pm.expect(body.error.code).to.eql(\"product_not_found\"));",
+                  "pm.test(\"В ошибке есть trace id\", () => pm.expect(body.trace_id).to.eql(pm.response.headers.get(\"x-trace-id\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "999999"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Аккаунт",
+      "item": [
+        {
+          "name": "Регистрация",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Каждый прогон – новое придуманное имя: от 3 до 15 букв, цифр или _.",
+                  "pm.collectionVariables.set(\"username\", \"ci_\" + Date.now().toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Пришел токен\", () => pm.expect(body.token).to.be.a(\"string\").and.not.empty);",
+                  "pm.collectionVariables.set(\"token\", body.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"kettle-on-42\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Повторная регистрация того же имени",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Код ошибки username_taken\", () => pm.expect(pm.response.json().error.code).to.eql(\"username_taken\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"kettle-on-42\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Корзина без токена",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"Код ошибки unauthorized\", () => pm.expect(pm.response.json().error.code).to.eql(\"unauthorized\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Корзина и заказ",
+      "item": [
+        {
+          "name": "Два чайника в корзину",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "const cart = pm.response.json();",
+                  "pm.test(\"Подытог 9800 рублей\", () => pm.expect(cart.subtotal).to.eql(9800));",
+                  "pm.test(\"Доставка бесплатная от 5000 рублей\", () => pm.expect(cart.shipping).to.eql(0));",
+                  "pm.test(\"Итого 9800 рублей\", () => pm.expect(cart.total).to.eql(9800));",
+                  "pm.test(\"Валюта корзины – рубли\", () => pm.expect(cart.currency).to.eql(\"RUB\"));",
+                  "pm.collectionVariables.set(\"cartTotal\", cart.total);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart",
+                "items"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Просроченный купон WINTER10",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"Код ошибки coupon_expired\", () => pm.expect(pm.response.json().error.code).to.eql(\"coupon_expired\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"WINTER10\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/coupon",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart",
+                "coupon"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Купон POLKA25",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Одна проверка на купон: если он не применился, заказ дальше идет по полной сумме корзины.",
+                  "const res = pm.response.json();",
+                  "const before = Number(pm.collectionVariables.get(\"cartTotal\"));",
+                  "pm.collectionVariables.set(\"expectedTotal\", pm.response.code === 200 ? res.total : before);",
+                  "pm.test(\"Купон POLKA25 дает скидку 25%\", () => {",
+                  "  pm.expect(pm.response.code, res.error ? res.error.message : \"\").to.eql(200);",
+                  "  pm.expect(res.discount).to.eql(Math.round(res.subtotal * 0.25));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"POLKA25\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/coupon",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart",
+                "coupon"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Оформить заказ",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.test(\"Ждет оплаты\", () => pm.expect(order.status).to.eql(\"awaiting_payment\"));",
+                  "pm.test(\"Номер заказа вида SH-100042\", () => pm.expect(order.number).to.match(/^SH-\\d{6}$/));",
+                  "pm.test(\"Сумма заказа равна сумме корзины\", () => pm.expect(order.total).to.eql(Number(pm.collectionVariables.get(\"expectedTotal\"))));",
+                  "pm.collectionVariables.set(\"orderId\", order.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shipping\": {\n    \"name\": \"Ольга Смирнова\",\n    \"address\": \"ул. Руставели, 12\",\n    \"city\": \"Тбилиси\",\n    \"postcode\": \"0108\",\n    \"country\": \"GE\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Оплата отклоненной картой",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 402\", () => pm.response.to.have.status(402));",
+                  "pm.test(\"Код ошибки card_declined\", () => pm.expect(pm.response.json().error.code).to.eql(\"card_declined\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{declinedCard}}\",\n  \"expiry_month\": 12,\n  \"expiry_year\": 2030,\n  \"cvc\": \"123\",\n  \"cardholder\": \"Olga Smirnova\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}/pay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}",
+                "pay"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Оплата картой, которая проходит",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test(\"Заказ оплачен\", () => pm.expect(order.status).to.eql(\"paid\"));",
+                  "pm.test(\"Сохранены обе попытки\", () => pm.expect(order.payments.map((p) => p.result)).to.have.members([\"declined\", \"succeeded\"]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"card_number\": \"{{okCard}}\",\n  \"expiry_month\": 12,\n  \"expiry_year\": 2030,\n  \"cvc\": \"123\",\n  \"cardholder\": \"Olga Smirnova\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}/pay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}",
+                "pay"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Удалить аккаунт",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Статус 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

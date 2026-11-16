@@ -1,0 +1,32 @@
+# "Полка" с базой Postgres: магазин и база одной командой (урок 5).
+#   docker compose up -d       запустить
+#   docker compose ps          что запущено
+#   docker compose down        остановить, данные базы остаются в томе
+#   docker compose down -v     остановить и удалить том с данными
+name: polka
+services:
+  shop:
+    image: ghcr.io/artichokeee/polka-shop:ru-3.7
+    ports:
+      - "3300:3300"
+    environment:
+      DATABASE_URL: postgres://polka:polka@db:5432/polka
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: polka
+      POSTGRES_PASSWORD: polka
+      POSTGRES_DB: polka
+    volumes:
+      - polka-db:/var/lib/postgresql/data
+      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polka -d polka"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  polka-db:

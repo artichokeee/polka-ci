@@ -1,0 +1,58 @@
+# Настройка учебного Jenkins кодом (JCasC). Читается при каждом запуске; после правки:
+#   docker compose up -d --build
+# ${ИМЯ} – переменные контейнера (docker-compose.yml и файл с паролем рядом).
+jenkins:
+  systemMessage: "Полка CI – учебный Jenkins курса \"Рабочий день тестировщика: Docker и CI/CD\""
+  numExecutors: 2
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          name: "Полка CI admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  markupFormatter: plainText
+unclassified:
+  location:
+    url: "${JENKINS_URL}"
+  # Explain Error установлен и выключен: включается в уроке 9 (Manage Jenkins → System → Explain Error).
+  explainError:
+    enableExplanation: false
+jobs:
+  - script: |
+      [
+        ['shelf-checks', 'Jenkinsfile', true,
+         'Поднимает "Полку" из образа polka-shop:SHOP_TAG, гоняет проверки API newman, публикует отчет.'],
+        ['shelf-checks-broken', 'jenkins/Jenkinsfile.broken', true,
+         'Тот же конвейер с одной ошибкой. Найдите красную стадию и причину.'],
+        ['polka-login-check', 'jenkins/Jenkinsfile.login-check', false,
+         'Входит в магазин тестовым аккаунтом. Пароль берет из учетных данных polka-test-password.'],
+        ['polka-leak', 'jenkins/Jenkinsfile.leak', false,
+         'Показывает, как секрет утекает мимо маски ****. Так делать нельзя.'],
+      ].each { name, path, tagged, text ->
+        pipelineJob(name) {
+          description(text)
+          logRotator { numToKeep(20) }
+          if (tagged) {
+            parameters {
+              choiceParam('SHOP_TAG', ['ru-3.6', 'ru-3.7'], 'Версия магазина: тег образа polka-shop')
+            }
+          }
+          definition {
+            cpsScm {
+              scm {
+                git {
+                  remote { url('${POLKA_REPO_URL}') }
+                  branch('refs/tags/${POLKA_REF}')
+                }
+              }
+              scriptPath(path)
+              lightweight(true)
+            }
+          }
+        }
+      }

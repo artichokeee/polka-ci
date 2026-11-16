@@ -1,0 +1,48 @@
+// polka-login-check: войти в "Полку" тестовым аккаунтом polka_test.
+// Пароль – из учетных данных Jenkins с ID polka-test-password (Secret text). В журнале он виден как ****.
+pipeline {
+  agent any
+  options {
+    timestamps()
+    timeout(time: 10, unit: 'MINUTES')
+    disableConcurrentBuilds()
+  }
+  environment {
+    SHOP = "polka-login-${env.BUILD_NUMBER}"
+    SHOP_URL = "http://${SHOP}:3300"
+  }
+  stages {
+    stage('Start shop') {
+      steps {
+        sh 'docker run -d --name "$SHOP" --network "$CI_NETWORK" -e PGLITE_DIR=memory "$POLKA_IMAGE:ru-3.6"'
+        sh '''
+          for _ in $(seq 1 30); do
+            if curl -fsS "$SHOP_URL/api/health"; then echo; exit 0; fi
+            sleep 2
+          done
+          docker logs "$SHOP"; exit 1
+        '''
+      }
+    }
+    stage('Login') {
+      steps {
+        withCredentials([string(credentialsId: 'polka-test-password', variable: 'POLKA_TEST_PASSWORD')]) {
+          sh '''
+            echo "Вход в магазин: polka_test, пароль $POLKA_TEST_PASSWORD"
+            status=$(curl -s -o login.json -w '%{http_code}' -H 'Content-Type: application/json' \
+              -d "{\\"username\\":\\"polka_test\\",\\"password\\":\\"$POLKA_TEST_PASSWORD\\"}" \
+              "$SHOP_URL/api/auth/login")
+            echo "Ответ магазина: HTTP $status"
+            if [ "$status" != 200 ]; then cat login.json; echo; exit 1; fi
+            echo "Вход выполнен. Код задания: $(printf 'polka-ci:s-code:%s' "$POLKA_TEST_PASSWORD" | sha256sum | cut -c1-8)"
+          '''
+        }
+      }
+    }
+  }
+  post {
+    always {
+      sh 'docker rm -f "$SHOP" >/dev/null 2>&1 || true'
+    }
+  }
+}

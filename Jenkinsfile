@@ -1,0 +1,74 @@
+// shelf-checks: поднять "Полку" из образа, прогнать проверки API newman, опубликовать отчет.
+// Идет на учебном Jenkins из папки jenkins (внутри Docker CLI и newman, снаружи Docker вашей машины).
+pipeline {
+  agent any
+  options {
+    timestamps()
+    timeout(time: 15, unit: 'MINUTES')
+    disableConcurrentBuilds()
+    skipDefaultCheckout() // забирает код стадия Checkout ниже, это видно в журнале
+  }
+  parameters {
+    choice(name: 'SHOP_TAG', choices: ['ru-3.6', 'ru-3.7'], description: 'Версия магазина: тег образа polka-shop')
+  }
+  environment {
+    SHOP = "polka-${env.JOB_NAME}-${env.BUILD_NUMBER}" // имя контейнера = адрес в сети polka-ci
+    SHOP_URL = "http://${SHOP}:3300"
+  }
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        sh 'git log -1 --format="Commit %h – %s"'
+      }
+    }
+    stage('Start shop') {
+      steps {
+        // PGLITE_DIR=memory: каждая сборка – чистая база с каталогом.
+        sh 'docker run -d --name "$SHOP" --network "$CI_NETWORK" -e PGLITE_DIR=memory "$POLKA_IMAGE:$SHOP_TAG"'
+        sh '''
+          for _ in $(seq 1 30); do
+            if curl -fsS "$SHOP_URL/api/health"; then echo; echo "Shop is up: $SHOP_URL"; exit 0; fi
+            sleep 2
+          done
+          echo "The shop did not answer on $SHOP_URL/api/health within 60 s"; docker logs "$SHOP"; exit 1
+        '''
+      }
+    }
+    stage('API checks') {
+      steps {
+        // Упавшая проверка красит стадию и сборку в желтый (UNSTABLE), и конвейер идет дальше, в Publish.
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+          sh '''
+            mkdir -p reports
+            newman run collection/polka-checks.postman_collection.json \
+              -e collection/polka-local.postman_environment.json \
+              --env-var "baseUrl=$SHOP_URL" \
+              --reporters cli,junit --reporter-junit-export reports/newman.xml \
+              --color off
+          '''
+        }
+      }
+    }
+    stage('Publish') {
+      steps {
+        sh 'mkdir -p reports && docker logs "$SHOP" > reports/shop.log 2>&1 || true'
+        junit allowEmptyResults: true, testResults: 'reports/newman.xml'
+        archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+        script {
+          if (currentBuild.currentResult == 'SUCCESS') {
+            sh '''
+              v=$(curl -fsS "$SHOP_URL/api/health" | node -pe 'JSON.parse(require("fs").readFileSync(0)).version')
+              echo "Все проверки прошли. Код задания: $(printf 'polka-ci:green:%s:%s' "$JOB_NAME" "$v" | sha256sum | cut -c1-8)"
+            '''
+          }
+        }
+      }
+    }
+  }
+  post {
+    always {
+      sh 'docker rm -f "$SHOP" >/dev/null 2>&1 || true'
+    }
+  }
+}

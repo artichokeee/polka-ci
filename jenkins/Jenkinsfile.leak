@@ -1,0 +1,22 @@
+// polka-leak: как секрет утекает мимо маски. Учебный пример того, чего в конвейере быть не должно.
+// Jenkins прячет в журнале точное значение секрета и его base64. Тот же пароль в любом другом виде – уже нет.
+pipeline {
+  agent any
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+  }
+  stages {
+    stage('Leak') {
+      steps {
+        withCredentials([string(credentialsId: 'polka-test-password', variable: 'POLKA_TEST_PASSWORD')]) {
+          sh '''
+            echo "Как есть: $POLKA_TEST_PASSWORD"
+            echo "В base64: $(printf '%s' "$POLKA_TEST_PASSWORD" | base64)"
+            echo "По буквам: $(printf '%s' "$POLKA_TEST_PASSWORD" | sed 's/./& /g')"
+          '''
+        }
+      }
+    }
+  }
+}

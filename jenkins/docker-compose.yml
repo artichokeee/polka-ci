@@ -1,0 +1,39 @@
+# Учебный Jenkins "Полки" – только на вашей машине.
+#   cp .env.example .env              затем впишите пароль в JENKINS_ADMIN_PASSWORD
+#   docker compose up -d --build      → http://localhost:8090, вход admin и пароль из .env
+#   docker compose down               остановить (сборки и настройки остаются в томе)
+#   docker compose down -v            остановить и забыть все: следующий запуск – чистый Jenkins
+# Сборки запускают магазин через Docker вашей машины в сети polka-ci: newman достает его по имени контейнера.
+name: polka-ci
+services:
+  jenkins:
+    build: .
+    image: polka-jenkins:2.580.2
+    ports:
+      - "${JENKINS_PORT:-8090}:8080"
+    environment:
+      JAVA_OPTS: >-
+        -Xmx768m
+        -Djenkins.install.runSetupWizard=false
+        -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=${POLKA_ALLOW_LOCAL_CHECKOUT:-false}
+      CASC_JENKINS_CONFIG: /usr/share/jenkins/casc/jenkins.yaml
+      JENKINS_URL: http://localhost:${JENKINS_PORT:-8090}/
+      JENKINS_ADMIN_ID: ${JENKINS_ADMIN_ID:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?Впишите пароль в JENKINS_ADMIN_PASSWORD в файле .env (образец – .env.example)}
+      POLKA_REPO_URL: ${POLKA_REPO_URL:-https://github.com/artichokeee/polka-ci.git}
+      POLKA_REF: ${POLKA_REF:-course-v1}
+      POLKA_IMAGE: ${POLKA_IMAGE:-ghcr.io/artichokeee/polka-shop}
+      CI_NETWORK: polka-ci
+    group_add:
+      - "${DOCKER_GID:-0}" # группа сокета Docker; Docker Desktop (Windows, macOS): 0
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${POLKA_LOCAL_REPO:-./empty}:/repo:ro # только для POLKA_REPO_URL=file:///repo
+    mem_limit: 1536m
+    networks: [ci]
+networks:
+  ci:
+    name: polka-ci
+volumes:
+  jenkins-home:

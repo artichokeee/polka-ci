@@ -10,7 +10,7 @@ on:
     - cron: "30 4 * * 1-5" # 04:30 UTC, по будням
 env:
   SHOP_IMAGE: ghcr.io/artichokeee/polka-shop
-  SHOP_TAG: ru-3.6
+  SHOP_TAG: ru-3.7
   SHOP_URL: http://localhost:3300
 
 jobs:

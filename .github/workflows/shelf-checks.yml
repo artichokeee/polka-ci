@@ -1,0 +1,86 @@
+# Проверки Полки: магазин из образа polka-shop, проверки API newman, отчет артефактом.
+# Запускается на каждый push, на pull request, по расписанию и кнопкой Run workflow на вкладке Actions.
+name: Shelf checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 4 * * 1-5" # 04:30 UTC, по будням
+env:
+  SHOP_IMAGE: ghcr.io/artichokeee/polka-shop
+  SHOP_TAG: ru-3.6
+  SHOP_URL: http://localhost:3300
+
+jobs:
+  api-checks:
+    runs-on: ubuntu-24.04
+    name: Проверки API
+    timeout-minutes: 15
+    env:
+      POLKA_TEST_PASSWORD: ${{ secrets.POLKA_TEST_PASSWORD }}
+    steps:
+      - name: Забрать репозиторий
+        uses: actions/checkout@v7
+
+      - name: Запустить магазин
+        run: |
+          # PGLITE_DIR=memory: каждый запуск – чистая база с каталогом.
+          docker run -d --name polka-shop -p 3300:3300 -e PGLITE_DIR=memory "$SHOP_IMAGE:$SHOP_TAG"
+          for _ in $(seq 1 30); do
+            if curl -fsS "$SHOP_URL/api/health"; then echo; echo "Shop is up: $SHOP_URL"; exit 0; fi
+            sleep 2
+          done
+          echo "The shop did not answer on $SHOP_URL/api/health within 60 s"
+          docker logs polka-shop
+          exit 1
+
+      - name: Установить Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Проверки API
+        run: |
+          mkdir -p reports
+          npx --yes newman@6.2.1 run collection/polka-checks.postman_collection.json \
+            -e collection/polka-local.postman_environment.json \
+            --env-var "baseUrl=$SHOP_URL" \
+            --reporters cli,junit --reporter-junit-export reports/newman.xml \
+            --color off
+
+      - name: Вход тестовым аккаунтом
+        if: env.POLKA_TEST_PASSWORD != ''
+        run: |
+          # Сравниваем хеш, а не сам пароль: значения секрета нет ни в файле, ни в журнале (там ***).
+          if [ "$(printf '%s' "$POLKA_TEST_PASSWORD" | sha256sum | cut -c1-64)" != "47b10345c31b6c993a3cb7e87df0a9d0cf86d878c7bc30539d5801e41be0085b" ]; then
+            echo "Секрет POLKA_TEST_PASSWORD задан, но это не учебный пароль из урока"; exit 1
+          fi
+          status=$(curl -s -o login.json -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d "{\"username\":\"polka_test\",\"password\":\"$POLKA_TEST_PASSWORD\"}" "$SHOP_URL/api/auth/login")
+          echo "Ответ магазина: HTTP $status"
+          if [ "$status" != 200 ]; then cat login.json; echo; exit 1; fi
+          echo "Вход выполнен. Код задания: $(printf 'polka-ci:a-secret:%s' "$POLKA_TEST_PASSWORD" | sha256sum | cut -c1-8)"
+
+      - name: Журнал магазина
+        if: always()
+        run: |
+          mkdir -p reports
+          docker logs polka-shop > reports/shop.log 2>&1 || true
+
+      - name: Загрузить отчет
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: shelf-checks-report
+          path: reports/
+          if-no-files-found: warn
+
+  summary:
+    name: Сводка
+    needs: api-checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Итог
+        run: echo "Все проверки API прошли на $SHOP_IMAGE:$SHOP_TAG"

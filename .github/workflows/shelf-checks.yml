@@ -11,7 +11,7 @@ on:
 env:
   SHOP_IMAGE: ghcr.io/artichokeee/polka-shop
   SHOP_TAG: ru-3.6
-  SHOP_URL: http://localhost:3300
+  SHOP_URL: http://localhost:3000
 
 jobs:
   api-checks:

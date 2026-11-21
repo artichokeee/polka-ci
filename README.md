@@ -65,6 +65,8 @@ docker compose up -d --build
 Кнопка **Use this template** → **Create a new repository** создает ваш собственный репозиторий из набора.
 Workflow `shelf-checks.yml` запускается на каждый push и кнопкой **Run workflow** на вкладке **Actions**.
 
+Проверки можно прогнать и без Jenkins: `newman run collection/polka-checks.postman_collection.json -e collection/polka-local.postman_environment.json`.
+
 ## Уборка
 
 После урока остановите то, что запускали: `docker rm -f <имя>` для отдельных контейнеров,
